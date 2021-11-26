@@ -89,7 +89,6 @@ function userSelectLanguages(languages) {
 
   var targetLangGroup = langConfigWindow.add("group {_: StaticText {text: \"Target languages:\"}}");
   targetLangGroup.alignChildren = "left";
-  targetLangGroup.orientation = "column";
   var targetLangCheckboxes = {};
   for (var i = 0; i < languages.length; ++i) {
     var checkbox = targetLangGroup.add("checkbox", undefined, languages[i]);
@@ -110,8 +109,11 @@ function userSelectLanguages(languages) {
       srcLangDropdown.currentLang = srcLangDropdown.selection.text;
     }
   }
-  langConfigWindow.add("button", undefined, "OK");
-  if (!langConfigWindow.show()) {
+  var buttonGroup = langConfigWindow.add("group");
+  buttonGroup.orientation = "row";
+  buttonGroup.add("button", undefined, "OK");
+  buttonGroup.add("button", undefined, "Cancel");
+  if (langConfigWindow.show() === 2) {
     return {
       source: null
     };
@@ -256,9 +258,34 @@ function generateLocalizedFiles(ccFile, selectedLanguages, worksheetData) {
   }
 }
 
+/**
+ * Opens worksheet selection dialog and loads selected worksheet JSON
+ * @param {Workbook object} workbook 
+ * @returns 
+ */
+function loadWorksheetData(workbook) {
+  // Worksheet selection
+  var sheetConfigWindow = new Window("dialog", "Select worksheet");
+  var sheetGroup = sheetConfigWindow.add("group {_: StaticText {text: \"Worksheet:\"}}");
+  var sheetDropdown = sheetGroup.add("dropdownlist", undefined, workbook.SheetNames);
+  sheetDropdown.selection = 0;
+  
+  var buttonGroup = sheetConfigWindow.add("group");
+  buttonGroup.orientation = "row";
+  buttonGroup.add("button", undefined, "OK");
+  buttonGroup.add("button", undefined, "Cancel");
+  if (sheetConfigWindow.show() === 2) {
+    return null;
+  }
+
+  // Convert sheet into JSON
+  var worksheet = workbook.Sheets[sheetDropdown.selection];
+  return XLSX.utils.sheet_to_json(worksheet, {raw: false});
+}
+
+
 function main() {
   const ccFile = getCCFile();
-
   if (ccFile === null) {
     return;
   }
@@ -282,19 +309,10 @@ function main() {
     return;
   }
 
-  // Worksheet selection
-  var sheetConfigWindow = new Window("dialog", "Select worksheet");
-  var sheetGroup = sheetConfigWindow.add("group {_: StaticText {text: \"Worksheet:\"}}");
-  var sheetDropdown = sheetGroup.add("dropdownlist", undefined, workbook.SheetNames);
-  sheetDropdown.selection = 0;
-  sheetConfigWindow.add("button", undefined, "OK");
-  if (!sheetConfigWindow.show()) {
+  var worksheetData = loadWorksheetData(workbook);
+  if (worksheetData === null) {
     return;
   }
-
-  // Convert sheet into JSON
-  var worksheet = workbook.Sheets[sheetDropdown.selection];
-  var worksheetData = XLSX.utils.sheet_to_json(worksheet, {raw: false});
 
   // Get list of languages
   var languages = Object.keys(worksheetData[0]);
@@ -310,6 +328,10 @@ function main() {
 
   var selectedLanguages = userSelectLanguages(languages);
   if (selectedLanguages.source === null) {
+    return;
+  }
+  if (selectedLanguages.target.length === 0) {
+    alert("No target languages selected");
     return;
   }
 
