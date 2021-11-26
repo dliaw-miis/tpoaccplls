@@ -113,6 +113,7 @@ function userSelectLanguages(languages) {
       srcLangDropdown.currentLang = srcLangDropdown.selection.text;
     }
   }
+
   var buttonGroup = langConfigWindow.add("group");
   buttonGroup.orientation = "row";
   buttonGroup.add("button", undefined, "OK");
@@ -153,7 +154,6 @@ function getDocumentTextLayers(document) {
     case ADOBE_PHOTOSHOP:
     default:
       textLayers = [];
-      //alert(document.layers.length + " document layers")
       for (var i = 0; i < document.layers.length; ++i) {
         if (document.layers[i].kind === LayerKind.TEXT) {
           textLayers.push(document.layers[i]);
@@ -205,67 +205,9 @@ function setLayerText(layer, newText) {
 }
 
 /**
- * Find layer/frame with matching text content
- * @param {[Layer or TextFrameItem]} textLayers 
- * @param {String} searchText 
- * @returns Layer/TextFrameItem
- */
-function findMatchingTextLayer(textLayers, searchText) {  //TODO: Sort/otherwise optimize search
-  var whitespaceRegex = /\s/g;
-  for (var i = 0; i < textLayers.length; ++i) {
-    var layerText = getLayerText(textLayers[i]).replace(whitespaceRegex, "");
-    if (getLayerText(textLayers[i]).replace(whitespaceRegex, "") === searchText.replace(whitespaceRegex, "")) {
-      return i;
-    }
-  }
-
-  return -1;
-}
-
-/**
- * Copy source CC file and replace text for all selected target languages
- * @param {File} ccFile 
- * @param {Object} selectedLanguages 
- * @param {Array} worksheetData 
- */
-function generateLocalizedFiles(ccFile, selectedLanguages, worksheetData) {
-  // Generated localized files
-  var dataLayerIndices = [];
-
-  for (var langIndex = 0; langIndex < selectedLanguages.target.length; ++langIndex) {
-    var currentLang = selectedLanguages.target[langIndex];
-    var targetFilename = generateTargetFilename(ccFile.name, currentLang);
-    var targetFile = new File(ccFile.path + "/" + targetFilename);
-    ccFile.copy(targetFile);
-    var targetDoc = app.open(targetFile);
-
-    var textLayers = getDocumentTextLayers(targetDoc);
-    for (var dataRow = 0; dataRow < worksheetData.length; ++dataRow) {
-      // Build index for subsequent target documents
-      if (dataLayerIndices.length < dataRow + 1) {
-        var matchingLayerIndex = findMatchingTextLayer(textLayers, worksheetData[dataRow][selectedLanguages.source]);
-        dataLayerIndices.push(matchingLayerIndex);
-
-        if (matchingLayerIndex === -1) {
-          // TODO: Log error for missing text layer
-        }
-      }
-
-      var layerIndex = dataLayerIndices[dataRow];
-      if (layerIndex !== -1) {
-        setLayerText(textLayers[layerIndex], worksheetData[dataRow][currentLang]);
-      }
-    }
-
-    targetDoc.save();
-    targetDoc.close();
-  }
-}
-
-/**
  * Opens worksheet selection dialog and loads selected worksheet JSON
- * @param {Workbook object} workbook 
- * @returns 
+ * @param {Workbook} workbook 
+ * @returns Worksheet object
  */
 function loadWorksheetData(workbook) {
   // Worksheet selection
@@ -287,7 +229,101 @@ function loadWorksheetData(workbook) {
   return XLSX.utils.sheet_to_json(worksheet, {raw: false});
 }
 
+/**
+ * Find layer/frame with matching text content
+ * @param {[Layer or TextFrameItem]} textLayers 
+ * @param {[int]} layerIndices
+ * @param {String} searchText 
+ * @returns Layer/TextFrameItem
+ */
+ function findMatchingTextLayer(layerTextStrings, layerIndices, searchText) {  //TODO: Sort/otherwise optimize search
+  if (layerIndices.length > 0) {
+    for (var i = 0; i < layerIndices.length; ++i) {
+      if (layerTextStrings[i] === searchText) {
+        var matchIndex = layerIndices[i];
+        layerTextStrings.splice(i, 1);
+        layerIndices.splice(i, 1);
+        return matchIndex;
+      }
+    }
+  }
 
+  return -1;
+}
+
+/**
+ * Map worksheet rows to layer indices
+ * @param {File} ccFile 
+ * @param {Worksheet object} worksheetData 
+ * @param {String} sourceLang 
+ * @returns Array of integers
+ */
+function mapTextLayers(ccFile, worksheetData, sourceLang) {
+  // var hasActiveDocument = app.activeDocument === null;
+  var sourceDocument = app.open(ccFile);
+  var textLayers = getDocumentTextLayers(sourceDocument);
+  
+  var layerIndices = [];
+  var layerTextStrings = [];
+  for (var i = 0; i < textLayers.length; ++i) {
+    layerIndices.push(i);
+    layerTextStrings.push(getLayerText(textLayers[i]).replace(WHITESPACE_REGEX, ""));
+  }
+  sourceDocument.close();
+
+  var textLayerMap = [];
+  var missingText = [];
+  for (var dataRow = 0; dataRow < worksheetData.length; ++dataRow) {
+    var trimmedSourceText = worksheetData[dataRow][sourceLang].replace(WHITESPACE_REGEX, "");
+    var layerMatchIndex = findMatchingTextLayer(layerTextStrings, layerIndices, trimmedSourceText)
+    textLayerMap.push(layerMatchIndex);
+    if (layerMatchIndex === -1) {
+      missingText.push(worksheetData[dataRow][sourceLang]);
+    }
+  }
+
+  if (missingText.length > 0) {
+    if (!confirm("Picture list entries not found in file:\n\n-" + missingText.join("\n-") + "\n\nProceed?")) {
+      return null;
+    }
+  }
+
+  return textLayerMap;
+
+}
+
+/**
+ * Copy source CC file and replace text for all selected target languages
+ * @param {File} ccFile 
+ * @param {Object} selectedLanguages 
+ * @param {Array} worksheetData 
+ */
+function generateLocalizedFiles(ccFile, selectedLanguages, worksheetData, textLayerMap) {
+  // Generated localized files
+  for (var langIndex = 0; langIndex < selectedLanguages.target.length; ++langIndex) {
+    var currentLang = selectedLanguages.target[langIndex];
+    var targetFilename = generateTargetFilename(ccFile.name, currentLang);
+    var targetFile = new File(ccFile.path + "/" + targetFilename);
+    ccFile.copy(targetFile);
+    var targetDoc = app.open(targetFile);
+
+    var textLayers = getDocumentTextLayers(targetDoc);
+    for (var dataRow = 0; dataRow < worksheetData.length; ++dataRow) {
+      var layerIndex = textLayerMap[dataRow];
+      if (layerIndex !== -1) {
+        setLayerText(textLayers[layerIndex], worksheetData[dataRow][currentLang]);
+      }
+    }
+
+    targetDoc.save();
+    targetDoc.close();
+  }
+}
+
+/**
+ * main function
+ * @returns Nothing
+ */
 function main() {
   const ccFile = getCCFile();
   if (ccFile === null) {
@@ -299,7 +335,7 @@ function main() {
     return;
   }
 
-  if (!confirm("Creative Cloud file: " + ccFile.name +
+  if (!confirm("Source " + app.name + " file: " + ccFile.name +
       "\n\nPicture list: " + pictureListFile.name +
       "\n\nLoad files? This operation may take a while.")) {
     return;
@@ -339,7 +375,17 @@ function main() {
     return;
   }
 
-  generateLocalizedFiles(ccFile, selectedLanguages, worksheetData);
+  var textLayerMap = mapTextLayers(ccFile, worksheetData, selectedLanguages.source);
+  if (textLayerMap === null) {
+    return;
+  }
+  
+  try {
+    generateLocalizedFiles(ccFile, selectedLanguages, worksheetData, textLayerMap);
+    alert("Successfully generated " + selectedLanguages.target.length + "localized files");
+  } catch (err) {
+    alert("Failed to generate localized files: " + err.message);
+  }
 }
 
 main();
