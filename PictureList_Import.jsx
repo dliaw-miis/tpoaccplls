@@ -40,6 +40,30 @@ appFiletypes[ADOBE_INDESIGN] = [
   "InDesign:*.indd"
 ];
 
+const WHITESPACE_REGEX = /\s/g;
+
+// Localization
+$.localize = true;
+const UI_MESSAGES = {
+  OK: { en: "OK" },
+  CANCEL: { en: "Cancel" },
+  UNSUPPORTED_APPLICATION: { en: "This application is not supported" },
+  SELECT_CC_FILE: { en: "Select Creative Cloud File" },
+  SELECT_PICTURE_LIST: { en: "Select Picture List File" },
+  FILE_LOAD_CONFIRM: {
+    en: app.name + " source file: %1\n\nPicture list: %2\n\nLoad files? This operation may take a while." },
+  PICTURE_LIST_LOAD_ERROR: { en: "Failed to open picture list: %1" },
+  SELECT_WORKSHEET_TITLE: { en: "Select Worksheet"},
+  NO_TARGET_LANGS_FOUND: { en: "No target languages found" },
+  NO_TARGET_LANGS_SELECTED: { en: "No target languages selected" },
+  SELECT_LANGUAGES_TITLE: { en: "Select Source/Target Languages" },
+  SOURCE_LANG_GROUP_TITLE: { en: "Source language" },
+  TARGET_LANG_GROUP_TITLE: { en: "Target languages" },
+  MISSING_SHEET_ROWS: { en: "Picture list entries not found in file:\n\n%1\n\nProceed?" },
+  FILE_LOCALIZE_SUCCESS: { en: "Successfully generated %1 localized file(s)" },
+  FILE_LOCALIZE_ERROR: { en: "Failed to generate localized files: %1" }
+};
+
 
 /**
  * Opens Adobe CC file selection dialog
@@ -49,11 +73,11 @@ function getCCFile() {
   if (app.documents.length === 0) {
     var filetypes = appFiletypes[app.name];
     if (filetypes === undefined) {
-      alert("Unsupported Creative Cloud app");
+      alert(UI_MESSAGES.UNSUPPORTED_APPLICATION);
       return null;
     }
     filetypes.push("All Formats:*.*");
-    return File.openDialog("Select Creative Cloud File", filetypes.join(","));
+    return File.openDialog(UI_MESSAGES.SELECT_CC_FILE, filetypes.join(","));
   } else {
     return app.activeDocument.fullName;
   }
@@ -64,7 +88,7 @@ function getCCFile() {
  * @returns File
  */
 function getPictureListFile() {
-  return File.openDialog("Select Picture List File", "Excel Files:*.xlsx;*.xls,All Formats:*.*");
+  return File.openDialog(UI_MESSAGES.SELECT_PICTURE_LIST, "Excel Files:*.xlsx;*.xls,All Formats:*.*");
 }
 
 /**
@@ -84,14 +108,16 @@ function generateTargetFilename(sourceName, targetLang) {
  * @returns Object containing selected source (string) and target languages (string array)
  */
 function userSelectLanguages(languages) {
-  var langConfigWindow = new Window("dialog", "Select source/target languages");
+  var langConfigWindow = new Window("dialog", UI_MESSAGES.SELECT_LANGUAGES_TITLE);
   langConfigWindow.alignChildren = "left";
-  var srcLangGroup = langConfigWindow.add("group {_: StaticText {text: \"Source language:\"}}");
+  var srcLangGroup = langConfigWindow.add("group")
+  srcLangGroup.add("statictext", undefined, UI_MESSAGES.SOURCE_LANG_GROUP_TITLE);
   var srcLangDropdown = srcLangGroup.add("dropdownlist", undefined, languages);
   srcLangDropdown.selection = 0;
   srcLangDropdown.currentLang = languages[0];
 
-  var targetLangGroup = langConfigWindow.add("group {_: StaticText {text: \"Target languages:\"}}");
+  var targetLangGroup = langConfigWindow.add("group");
+  targetLangGroup.add("statictext", undefined, UI_MESSAGES.TARGET_LANG_GROUP_TITLE);
   targetLangGroup.alignChildren = "left";
   var targetLangCheckboxes = {};
   for (var i = 0; i < languages.length; ++i) {
@@ -116,8 +142,8 @@ function userSelectLanguages(languages) {
 
   var buttonGroup = langConfigWindow.add("group");
   buttonGroup.orientation = "row";
-  buttonGroup.add("button", undefined, "OK");
-  buttonGroup.add("button", undefined, "Cancel");
+  buttonGroup.add("button", undefined, UI_MESSAGES.OK);
+  buttonGroup.add("button", undefined, UI_MESSAGES.CANCEL);
   if (langConfigWindow.show() === 2) {
     return {
       source: null
@@ -211,15 +237,15 @@ function setLayerText(layer, newText) {
  */
 function loadWorksheetData(workbook) {
   // Worksheet selection
-  var sheetConfigWindow = new Window("dialog", "Select worksheet");
-  var sheetGroup = sheetConfigWindow.add("group {_: StaticText {text: \"Worksheet:\"}}");
+  var sheetConfigWindow = new Window("dialog", UI_MESSAGES.SELECT_WORKSHEET_TITLE);
+  var sheetGroup = sheetConfigWindow.add("group");
   var sheetDropdown = sheetGroup.add("dropdownlist", undefined, workbook.SheetNames);
   sheetDropdown.selection = 0;
   
   var buttonGroup = sheetConfigWindow.add("group");
   buttonGroup.orientation = "row";
-  buttonGroup.add("button", undefined, "OK");
-  buttonGroup.add("button", undefined, "Cancel");
+  buttonGroup.add("button", undefined, UI_MESSAGES.OK);
+  buttonGroup.add("button", undefined, UI_MESSAGES.CANCEL);
   if (sheetConfigWindow.show() === 2) {
     return null;
   }
@@ -283,7 +309,7 @@ function mapTextLayers(ccFile, worksheetData, sourceLang) {
   }
 
   if (missingText.length > 0) {
-    if (!confirm("Picture list entries not found in file:\n\n-" + missingText.join("\n-") + "\n\nProceed?")) {
+    if (!confirm(localize(UI_MESSAGES.MISSING_SHEET_ROWS, "-" + missingText.join("\n-")))) {
       return null;
     }
   }
@@ -335,9 +361,7 @@ function main() {
     return;
   }
 
-  if (!confirm("Source " + app.name + " file: " + ccFile.name +
-      "\n\nPicture list: " + pictureListFile.name +
-      "\n\nLoad files? This operation may take a while.")) {
+  if (!confirm(localize(UI_MESSAGES.FILE_LOAD_CONFIRM, ccFile.name, pictureListFile.name))) {
     return;
   }
 
@@ -345,7 +369,7 @@ function main() {
   try {
     workbook = XLSX.readFile(pictureListFile);
   } catch (err) {
-    alert("Failed to open picture list: " + err.message);
+    alert(localize(UI_MESSAGES.PICTURE_LIST_LOAD_ERROR, err.message));
     return;
   }
 
@@ -362,7 +386,7 @@ function main() {
   }
 
   if (languages.length < 2) {
-    alert("No target languages found");
+    alert(UI_MESSAGES.NO_TARGET_LANGS_FOUND);
     return;
   }
 
@@ -371,7 +395,7 @@ function main() {
     return;
   }
   if (selectedLanguages.target.length === 0) {
-    alert("No target languages selected");
+    alert(UI_MESSAGES.NO_TARGET_LANGS_SELECTED);
     return;
   }
 
@@ -382,9 +406,9 @@ function main() {
   
   try {
     generateLocalizedFiles(ccFile, selectedLanguages, worksheetData, textLayerMap);
-    alert("Successfully generated " + selectedLanguages.target.length + "localized files");
+    alert(localize(UI_MESSAGES.FILE_LOCALIZE_SUCCESS, selectedLanguages.target.length));
   } catch (err) {
-    alert("Failed to generate localized files: " + err.message);
+    alert(localize(UI_MESSAGES.FILE_LOCALIZE_ERROR, err.description));
   }
 }
 
