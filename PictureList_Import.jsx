@@ -47,11 +47,12 @@ $.localize = true;
 const UI_MESSAGES = {
   OK: { en: "OK" },
   CANCEL: { en: "Cancel" },
-  UNSUPPORTED_APPLICATION: { en: "This application is not supported" },
+  APP_NOT_SUPPORTED: { en: "This application is not supported" },
+  USE_ACTIVE_DOCUMENT: { en: "Import picture list for active document?" },
   SELECT_CC_FILE: { en: "Select Creative Cloud File" },
   SELECT_PICTURE_LIST: { en: "Select Picture List File" },
   FILE_LOAD_CONFIRM: {
-    en: app.name + " source file: %1\n\nPicture list: %2\n\nLoad files? This operation may take a while." },
+    en: app.name + " source file: %1\n\nPicture list: %2\n\nLoad files? Large files may take a while to load." },
   PICTURE_LIST_LOAD_ERROR: { en: "Failed to open picture list: %1" },
   SELECT_WORKSHEET_TITLE: { en: "Select Worksheet"},
   NO_TARGET_LANGS_FOUND: { en: "No target languages found" },
@@ -70,17 +71,15 @@ const UI_MESSAGES = {
  * @returns File
  */
 function getCCFile() {
-  if (app.documents.length === 0) {
-    var filetypes = appFiletypes[app.name];
-    if (filetypes === undefined) {
-      alert(UI_MESSAGES.UNSUPPORTED_APPLICATION);
-      return null;
+  if (app.documents.length > 0) {
+    if (confirm(UI_MESSAGES.USE_ACTIVE_DOCUMENT)) {
+      return app.activeDocument.fullName;
     }
-    filetypes.push("All Formats:*.*");
-    return File.openDialog(UI_MESSAGES.SELECT_CC_FILE, filetypes.join(","));
-  } else {
-    return app.activeDocument.fullName;
   }
+  
+  var filetypes = appFiletypes[app.name];
+  filetypes.push("All Formats:*.*");
+  return File.openDialog(UI_MESSAGES.SELECT_CC_FILE, filetypes.join(","));
 }
 
 /**
@@ -145,9 +144,7 @@ function userSelectLanguages(languages) {
   buttonGroup.add("button", undefined, UI_MESSAGES.OK);
   buttonGroup.add("button", undefined, UI_MESSAGES.CANCEL);
   if (langConfigWindow.show() === 2) {
-    return {
-      source: null
-    };
+    return null;
   }
 
   var selectedTargetLangs = [];
@@ -155,6 +152,11 @@ function userSelectLanguages(languages) {
     if (targetLangCheckboxes[languages[i]].value) {
       selectedTargetLangs.push(languages[i]);
     }
+  }
+
+  if (selectedTargetLangs.length === 0) {
+    alert(UI_MESSAGES.NO_TARGET_LANGS_SELECTED);
+    return null;
   }
 
   var selectedLanguages = {
@@ -262,7 +264,7 @@ function loadWorksheetData(workbook) {
  * @param {String} searchText 
  * @returns Layer/TextFrameItem
  */
- function findMatchingTextLayer(layerTextStrings, layerIndices, searchText) {  //TODO: Sort/otherwise optimize search
+ function findMatchingTextLayer(layerTextStrings, layerIndices, searchText) {
   if (layerIndices.length > 0) {
     for (var i = 0; i < layerIndices.length; ++i) {
       if (layerTextStrings[i] === searchText) {
@@ -285,8 +287,8 @@ function loadWorksheetData(workbook) {
  * @returns Array of integers
  */
 function mapTextLayers(ccFile, worksheetData, sourceLang) {
-  // var hasActiveDocument = app.activeDocument === null;
-  var sourceDocument = app.open(ccFile);
+  var docAlreadyOpen = app.documents.length > 0 && app.activeDocument.fullName.toString() === ccFile.toString();
+  var sourceDocument = docAlreadyOpen ? app.activeDocument : app.open(ccFile);
   var textLayers = getDocumentTextLayers(sourceDocument);
   
   var layerIndices = [];
@@ -295,7 +297,9 @@ function mapTextLayers(ccFile, worksheetData, sourceLang) {
     layerIndices.push(i);
     layerTextStrings.push(getLayerText(textLayers[i]).replace(WHITESPACE_REGEX, ""));
   }
-  sourceDocument.close();
+  if (!docAlreadyOpen) {
+    sourceDocument.close(SaveOptions.DONOTSAVECHANGES);
+  }
 
   var textLayerMap = [];
   var missingText = [];
@@ -351,6 +355,11 @@ function generateLocalizedFiles(ccFile, selectedLanguages, worksheetData, textLa
  * @returns Nothing
  */
 function main() {
+  if (!(app.name in appFiletypes)) {
+    alert(UI_MESSAGES.APP_NOT_SUPPORTED);
+    return;
+  }
+  
   const ccFile = getCCFile();
   if (ccFile === null) {
     return;
@@ -384,18 +393,13 @@ function main() {
   if (rowNumPropIndex !== -1) {
     languages.splice(rowNumPropIndex, 1);
   }
-
   if (languages.length < 2) {
     alert(UI_MESSAGES.NO_TARGET_LANGS_FOUND);
     return;
   }
 
   var selectedLanguages = userSelectLanguages(languages);
-  if (selectedLanguages.source === null) {
-    return;
-  }
-  if (selectedLanguages.target.length === 0) {
-    alert(UI_MESSAGES.NO_TARGET_LANGS_SELECTED);
+  if (selectedLanguages === null) {
     return;
   }
 
