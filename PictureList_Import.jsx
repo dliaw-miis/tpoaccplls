@@ -48,10 +48,14 @@ appFiletypes[ADOBE_INDESIGN] = [
 function getCCFile() {
   if (app.documents.length === 0) {
     var filetypes = appFiletypes[app.name];
+    if (filetypes === undefined) {
+      alert("Unsupported Creative Cloud app");
+      return null;
+    }
     filetypes.push("All Formats:*.*");
     return File.openDialog("Select Creative Cloud File", filetypes.join(","));
   } else {
-    return new File(app.activeDocument.fullName);
+    return app.activeDocument.fullName;
   }
 }
 
